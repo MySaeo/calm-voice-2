@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>도서 POS (오프라인 모드)</title>
+    <!-- 인터넷이 켜져 있을 때 한 번만 다운로드 받으면 브라우저가 임시 보관(캐시)합니다 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <!-- 진짜 엑셀(.xlsx) 파일 저장을 위한 라이브러리 -->
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@600;800&display=swap');
+        body { font-family: 'Pretendard', sans-serif; background-color: #f8fafc; touch-action: manipulation; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        #reader { width: 100% !important; background: black; }
+        #reader video { object-fit: cover !important; }
+        .scan-line {
+            position: absolute; top: 50%; left: 10%; width: 80%; height: 2px;
+            background: #22c55e; box-shadow: 0 0 15px #22c55e;
+            animation: scan 1.5s infinite ease-in-out; z-index: 10;
+        }
+        @keyframes scan { 0%, 100% { transform: translateY(-50px); opacity: 0.2; } 50% { transform: translateY(50px); opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const BOOK_DATABASE = [
+            {"barcode": "9788985186100", "title": "염신경", "series": "금구의 말씀 1", "price": 1000},
+            {"barcode": "9791191224658", "title": "초전법륜경", "series": "금구의 말씀 2", "price": 10000},
+            {"barcode": "9791191224122", "title": "초전법륜경", "series": "금구의 말씀 2", "price": 1000},
+            {"barcode": "9791191224689", "title": "불법의 주춧돌", "series": "단행본", "price": 15000},
+            {"barcode": "9791191224115", "title": "붓다의 일생", "series": "단행본", "price": 18000},
+            {"barcode": "9791191224009", "title": "불법의 대들보-마음챙김", "series": "단행본", "price": 13000},
+            {"barcode": "9788985186629", "title": "붓다의 말씀", "series": "단행본", "price": 7000},
+            {"barcode": "9788985186087", "title": "부처님, 그분", "series": "법륜 1", "price": 1000},
+            {"barcode": "9788985186124", "title": "구도의 마음, 자유", "series": "법륜 2", "price": 1000},
+            {"barcode": "9788985186186", "title": "다르마팔라", "series": "법륜 3", "price": 1000},
+            {"barcode": "9788985186193", "title": "존재의 세 가지 속성", "series": "법륜 4", "price": 1000},
+            {"barcode": "9788985186117", "title": "한 발은 풍진 속에 둔 채", "series": "법륜 5", "price": 1000},
+            {"barcode": "9788985186155", "title": "옛 이야기", "series": "법륜 6", "price": 1000},
+            {"barcode": "9788985186162", "title": "마음, 과연 무엇인가", "series": "법륜 7", "price": 1000},
+            {"barcode": "9788985186315", "title": "자비관", "series": "법륜 8", "price": 1000},
+            {"barcode": "9788985186339", "title": "다섯 가지 장애와 그 극복 방법", "series": "법륜 9", "price": 1000},
+            {"barcode": "9788985186391", "title": "보시", "series": "법륜 10", "price": 1000},
+            {"barcode": "9788985186407", "title": "죽음은 두려운 것인가", "series": "법륜 11", "price": 1000},
+            {"barcode": "9788985186520", "title": "염수경(念受經)", "series": "법륜 12", "price": 1000},
+            {"barcode": "9788985186544", "title": "우리는 어떤 과정을 통하여 다시 태어나는가", "series": "법륜 13", "price": 1000},
+            {"barcode": "9788985186551", "title": "사리뿟다 이야기", "series": "법륜 14", "price": 1000},
+            {"barcode": "9788985186650", "title": "(불교의 초석) 사성제", "series": "법륜 15", "price": 1000},
+            {"barcode": "9788985186711", "title": "칠각지", "series": "법륜 16", "price": 1000},
+            {"barcode": "9788985186759", "title": "불교 - 과학시대의 종교", "series": "법륜 17", "price": 1000},
+            {"barcode": "9788985186766", "title": "팔정도", "series": "법륜 18", "price": 1000},
+            {"barcode": "9788985186773", "title": "마라의 편지", "series": "법륜 19", "price": 1000},
+            {"barcode": "9788985186780", "title": "생태위기", "series": "법륜 20", "price": 1000},
+            {"barcode": "9788985186841", "title": "미래를 직시하며", "series": "법륜 21", "price": 1000},
+            {"barcode": "9788985186292", "title": "연기", "series": "법륜 22", "price": 1000},
+            {"barcode": "9791191224016", "title": "불교와 기독교", "series": "법륜 23", "price": 1000},
+            {"barcode": "9791191224054", "title": "마음챙김의 힘", "series": "법륜 24", "price": 1000},
+            {"barcode": "9791191224139", "title": "업-재생-윤회의 가르침", "series": "법륜 25", "price": 1000},
+            {"barcode": "9791191224702", "title": "둑카 - 고苦", "series": "법륜 26", "price": 1000},
+            {"barcode": "9788985186018", "title": "영원한 올챙이", "series": "보리수 1", "price": 500},
+            {"barcode": "9788985186025", "title": "마음 길들이기", "series": "보리수 2", "price": 500},
+            {"barcode": "9788985186032", "title": "세상에 무거운 짐, 삼독심수행의 예비단계", "series": "보리수 3", "price": 500},
+            {"barcode": "9788985186049", "title": "새 시대인가, 말세인가", "series": "보리수 4", "price": 500},
+            {"barcode": "9788985186056", "title": "거룩한 마음가짐-사무량심", "series": "보리수 5", "price": 500},
+            {"barcode": "9788985186063", "title": "불교의 명상", "series": "보리수 6", "price": 500},
+            {"barcode": "9788985186070", "title": "미래의 종교, 불교", "series": "보리수 7", "price": 500},
+            {"barcode": "9788985186247", "title": "불교이해의 정(正)과 사(邪)", "series": "보리수 8", "price": 500},
+            {"barcode": "9788985186094", "title": "관법수행의 첫걸음", "series": "보리수 9", "price": 500},
+            {"barcode": "9788985186131", "title": "업에서 헤어나는 길", "series": "보리수 10", "price": 500},
+            {"barcode": "9788985186148", "title": "티싸 스님과의 대화", "series": "보리수 11", "price": 500},
+            {"barcode": "9788985186179", "title": "불교와 과학, 불교의 매력", "series": "보리수 13", "price": 500},
+            {"barcode": "9788985186209", "title": "물소를 닮는 마음/있는 그대로", "series": "보리수 14", "price": 500},
+            {"barcode": "9788985186216", "title": "참 고향은 어디인가", "series": "보리수 15", "price": 500},
+            {"barcode": "9788985186223", "title": "무아의 명상", "series": "보리수 16", "price": 500},
+            {"barcode": "9788985186230", "title": "수행자의 길-티베트 옛 고승들의 경책", "series": "보리수 17", "price": 500},
+            {"barcode": "9788985186261", "title": "현대인과 불교 명상", "series": "보리수 18", "price": 500},
+            {"barcode": "9788985186278", "title": "자유의 맛", "series": "보리수 19", "price": 500},
+            {"barcode": "9788985186353", "title": "삶을 대하는 태도들", "series": "보리수 20", "price": 500},
+            {"barcode": "9788985186360", "title": "업과 윤회", "series": "보리수 21", "price": 500},
+            {"barcode": "9788985186377", "title": "성지 순례의 길에서", "series": "보리수 22", "price": 500},
+            {"barcode": "9788985186384", "title": "두려움과 슬픔을 느낄 때", "series": "보리수 23", "price": 500},
+            {"barcode": "9788985186414", "title": "정근", "series": "보리수 24", "price": 500},
+            {"barcode": "9788985186421", "title": "큰 합리주의", "series": "보리수 25", "price": 500},
+            {"barcode": "9788985186438", "title": "오계(五戒)와 현대사회", "series": "보리수 26", "price": 500},
+            {"barcode": "9788985186452", "title": "경전에 나오는 비유담 몇 토막", "series": "보리수 27", "price": 500},
+            {"barcode": "9788985186469", "title": "불교 이해의 첫걸음/불교와 대중", "series": "보리수 28", "price": 500},
+            {"barcode": "9788985186476", "title": "이 시대의 중도", "series": "보리수 29", "price": 500},
+            {"barcode": "9788985186483", "title": "고(苦)에 어떻게 대응할 것인가", "series": "보리수 30", "price": 500},
+            {"barcode": "9788985186513", "title": "빈 강변에서 홀로 부처를 만나다", "series": "보리수 31", "price": 500},
+            {"barcode": "9788985186537", "title": "병상의 당신에게 감로수를 드립니다", "series": "보리수 32", "price": 500},
+            {"barcode": "9788985186568", "title": "해탈의 이정표", "series": "보리수 33", "price": 500},
+            {"barcode": "9788985186575", "title": "명상의 열매/마음챙김과 알아차림", "series": "보리수 34", "price": 500},
+            {"barcode": "9788985186582", "title": "불자의 참모습", "series": "보리수 35", "price": 500},
+            {"barcode": "9788985186599", "title": "사후세계의 갈림길", "series": "보리수 36", "price": 500},
+            {"barcode": "9788985186605", "title": "왜 불교인가", "series": "보리수 37", "price": 500},
+            {"barcode": "9788985186612", "title": "참된 길동무", "series": "보리수 38", "price": 500},
+            {"barcode": "9788985186636", "title": "스스로 만든 감옥", "series": "보리수 39", "price": 500},
+            {"barcode": "9788985186643", "title": "행선의 효험", "series": "보리수 40", "price": 500},
+            {"barcode": "9788985186667", "title": "동.서양의 윤회관", "series": "보리수 41", "price": 500},
+            {"barcode": "9788985186674", "title": "부처님이 세운 법의 도시", "series": "보리수 42", "price": 500},
+            {"barcode": "9788985186681", "title": "슬픔의 뒤안길서 만나는 기쁨", "series": "보리수 43", "price": 500},
+            {"barcode": "9788985186698", "title": "출가의 길", "series": "보리수 44", "price": 500},
+            {"barcode": "9788985186704", "title": "불교와 합리주의-깔라마 경 다시 읽기-", "series": "보리수 45", "price": 500},
+            {"barcode": "9788985186728", "title": "학문의 세계와 윤회", "series": "보리수 46", "price": 500},
+            {"barcode": "9788985186735", "title": "부처님의 실용적 가르침", "series": "보리수 47", "price": 500},
+            {"barcode": "9788985186742", "title": "법의 도전 /재가 불자를 위한 이정표", "series": "보리수 48", "price": 500},
+            {"barcode": "9788985186797", "title": "원숭이 덫 이야기", "series": "보리수 49", "price": 500},
+            {"barcode": "9788985186957", "title": "불제자의 칠보", "series": "보리수 50", "price": 500},
+            {"barcode": "9791191224535", "title": "텅 빔", "series": "보리수 51", "price": 500},
+            {"barcode": "9788985186803", "title": "지식과 지혜", "series": "소리 1", "price": 1000},
+            {"barcode": "9788985186810", "title": "소리빗질, 마음빗질", "series": "소리 2", "price": 1000},
+            {"barcode": "9788985186827", "title": "불교의 시작과 끝 사성제", "series": "소리 3", "price": 1000},
+            {"barcode": "9788985186834", "title": "지금여기 챙기기", "series": "소리 4", "price": 1000},
+            {"barcode": "9788985186858", "title": "연기법으로 짓는 복 농사", "series": "소리 5", "price": 1000},
+            {"barcode": "9788985186865", "title": "참선과 중도", "series": "소리 6", "price": 1000},
+            {"barcode": "9788985186872", "title": "참선과 팔정도", "series": "소리 7", "price": 1000},
+            {"barcode": "9788985186889", "title": "중도, 이 시대의 길", "series": "소리 8", "price": 1000},
+            {"barcode": "9788985186896", "title": "오계와 팔정도", "series": "소리 9", "price": 1000},
+            {"barcode": "9788985186902", "title": "과학과 불법의 융합", "series": "소리 10", "price": 1000},
+            {"barcode": "9788985186919", "title": "부처님 생애 이야기", "series": "소리 11", "price": 1000},
+            {"barcode": "9788985186926", "title": "진선미와 탐진치", "series": "소리 12", "price": 1000},
+            {"barcode": "9788985186933", "title": "우리 시대의 삼보", "series": "소리 13", "price": 1000},
+            {"barcode": "9788985186940", "title": "시간관과 현대의 고", "series": "소리 14", "price": 1000},
+            {"barcode": "9788985186964", "title": "담마와 아비담마", "series": "소리 15", "price": 1000},
+            {"barcode": "9788985186971", "title": "인도여행으로 본 계정혜", "series": "소리 16", "price": 1000},
+            {"barcode": "9788985186988", "title": "일상생활과 불교공부", "series": "소리 17", "price": 1000},
+            {"barcode": "9788985186995", "title": "의를 가진 존재, 사람", "series": "소리 18", "price": 1000},
+            {"barcode": "9788985186001", "title": "바른 견해란 무엇인가", "series": "소리 19", "price": 1000},
+            {"barcode": "9788985186285", "title": "활성스님, 이 시대 불교를 말하다", "series": "소리 20", "price": 1000},
+            {"barcode": "9788985186308", "title": "빠알리 경, 우리의 의지처", "series": "소리 21", "price": 1000},
+            {"barcode": "9788985186322", "title": "윤회고를 벗는 길", "series": "소리 22", "price": 1000},
+            {"barcode": "9788985186346", "title": "윤리와 도덕/코로나 사태를 어떻게 볼 것인가", "series": "소리 23", "price": 1000},
+            {"barcode": "9791191224030", "title": "산냐에서 빤냐로", "series": "소리 24", "price": 1000},
+            {"barcode": "9791191224047", "title": "상카아라와 담마", "series": "소리 25", "price": 1000},
+            {"barcode": "9791191224092", "title": "팔정도 다시 보기", "series": "소리 26", "price": 1000},
+            {"barcode": "9791191224405", "title": "부처님의 언설과 어법", "series": "소리 27", "price": 1000},
+            {"barcode": "9791191224672", "title": "십이연기", "series": "소리 28", "price": 1000},
+            {"barcode": "9791191224696", "title": "담마와 우주 학교", "series": "소리 29", "price": 1000},
+            {"barcode": "9791191224634", "title": "육처와 육근", "series": "소리 30", "price": 1000},
+        ];
+
+        function App() {
+            const [view, setView] = useState('pos');
+            const [cart, setCart] = useState([]);
+            const [isOffline, setIsOffline] = useState(!navigator.onLine);
+            const [salesHistory, setSalesHistory] = useState(() => {
+                const saved = localStorage.getItem('offline_pos_sales');
+                return saved ? JSON.parse(saved) : [];
+            });
+            const [isScanning, setIsScanning] = useState(false);
+            const [manualInput, setManualInput] = useState('');
+
+            const html5QrCode = useRef(null);
+
+            // 오프라인 상태 실시간 감지
+            useEffect(() => {
+                const handleOffline = () => setIsOffline(true);
+                const handleOnline = () => setIsOffline(false);
+                window.addEventListener('offline', handleOffline);
+                window.addEventListener('online', handleOnline);
+                return () => {
+                    window.removeEventListener('offline', handleOffline);
+                    window.removeEventListener('online', handleOnline);
+                };
+            }, []);
+
+            // 판매 데이터가 변경될 때마다 기기에 로컬 저장 (오프라인의 핵심)
+            useEffect(() => {
+                localStorage.setItem('offline_pos_sales', JSON.stringify(salesHistory));
+            }, [salesHistory]);
+
+            // 아이콘 다시 그리기 (화면 전환 시)
+            useEffect(() => {
+                if (window.lucide) lucide.createIcons();
+            }, [view, cart, salesHistory, isScanning, isOffline]);
+
+            const startScanner = async () => {
+                setIsScanning(true);
+                setTimeout(async () => {
+                    const scanner = new Html5Qrcode("reader");
+                    html5QrCode.current = scanner;
+
+                    // 표준 제약 조건만 사용 (호환성 향상)
+                    const config = {
+                        fps: 15,
+                        qrbox: { width: 280, height: 160 },
+                        aspectRatio: 1.0,
+                        formatsToSupport: undefined,
+                        experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+                    };
+
+                    try {
+                        await scanner.start(
+                            { facingMode: "environment" },
+                            config,
+                            (decodedText) => {
+                                if (navigator.vibrate) navigator.vibrate(100);
+                                addToCart(decodedText);
+                                stopScanner();
+                            },
+                            () => {}
+                        );
+
+                        // 줌 적용 (기기가 지원하는 경우에만, 안전하게 시도)
+                        try {
+                            const caps = scanner.getRunningTrackCameraCapabilities
+                                ? scanner.getRunningTrackCameraCapabilities()
+                                : null;
+                            if (caps && caps.zoomFeature && caps.zoomFeature().isSupported()) {
+                                caps.zoomFeature().apply(2.0);
+                            }
+                        } catch (zoomErr) {
+                            // 줌 미지원 기기 — 무시하고 정상 스캔
+                        }
+                    } catch (err) {
+                        alert("카메라를 켤 수 없습니다. 카메라 권한을 허용했는지 확인하세요.");
+                        setIsScanning(false);
+                    }
+                }, 300);
+            };
+
+            const stopScanner = async () => {
+                if (html5QrCode.current && html5QrCode.current.isScanning) {
+                    try { await html5QrCode.current.stop(); } catch (err) {}
+                }
+                if (html5QrCode.current) {
+                    try { html5QrCode.current.clear(); } catch (err) {}
+                }
+                setIsScanning(false);
+            };
+
+            const addToCart = (barcode) => {
+                const clean = String(barcode || '').trim();
+                if (!clean) return;
+                const book = BOOK_DATABASE.find(b => b.barcode === clean);
+                if (book) {
+                    setCart(prev => {
+                        const existing = prev.find(item => item.barcode === clean);
+                        if (existing) return prev.map(item => item.barcode === clean ? { ...item, qty: item.qty + 1 } : item);
+                        return [...prev, { ...book, qty: 1 }];
+                    });
+                } else {
+                    alert("미등록 바코드: " + clean);
+                }
+                setManualInput('');
+            };
+
+            const updateQty = (barcode, delta) => {
+                setCart(prev => prev.map(item => item.barcode === barcode ? { ...item, qty: Math.max(1, item.qty + delta) } : item));
+            };
+
+            const removeItem = (barcode) => setCart(prev => prev.filter(item => item.barcode !== barcode));
+
+            const handleCheckout = (method) => {
+                if (cart.length === 0) return;
+                const total = cart.reduce((s, i) => s + (i.price * i.qty), 0);
+                const itemsStr = cart.map(i => `${i.title}(${i.qty})`).join(", ");
+                const newRecord = {
+                    id: Date.now(),
+                    timestamp: new Date().toLocaleString('ko-KR'),
+                    items: itemsStr,
+                    cartSnapshot: cart.map(i => ({ series: i.series, title: i.title, qty: i.qty, price: i.price })),
+                    total,
+                    method
+                };
+                setSalesHistory(prev => [newRecord, ...prev]);
+                setCart([]);
+            };
+
+            // 진짜 엑셀(.xlsx) 파일로 저장 — 한 줄당 한 권씩 상세 기록
+            const exportExcel = () => {
+                if (salesHistory.length === 0) { alert("저장할 판매 기록이 없습니다."); return; }
+                const rows = [];
+                salesHistory.forEach(r => {
+                    const list = r.cartSnapshot || [];
+                    if (list.length > 0) {
+                        list.forEach(b => {
+                            rows.push({
+                                "날짜": r.timestamp,
+                                "시리즈": b.series || "",
+                                "책 이름": b.title,
+                                "수량": b.qty,
+                                "단가": b.price,
+                                "금액": b.price * b.qty,
+                                "결제수단": r.method
+                            });
+                        });
+                    } else {
+                        rows.push({ "날짜": r.timestamp, "시리즈": "", "책 이름": r.items, "수량": "", "단가": "", "금액": r.total, "결제수단": r.method });
+                    }
+                });
+                const ws = XLSX.utils.json_to_sheet(rows);
+                ws['!cols'] = [{ wch: 20 }, { wch: 12 }, { wch: 30 }, { wch: 6 }, { wch: 8 }, { wch: 10 }, { wch: 10 }];
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "판매기록");
+                const today = new Date().toLocaleDateString('ko-KR').replace(/\./g, '').replace(/\s/g, '');
+                XLSX.writeFile(wb, `박람회_매출_${today}.xlsx`);
+            };
+
+            const totalPrice = cart.reduce((s, i) => s + (i.price * i.qty), 0);
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen flex flex-col bg-slate-100 shadow-2xl relative">
+                    {isOffline ? (
+                        <div className="bg-green-500 text-white text-xs font-bold text-center py-1.5 flex items-center justify-center gap-2">
+                            <i data-lucide="wifi-off" className="w-3 h-3"></i>
+                            오프라인 모드 안전하게 작동 중 (데이터 기기 저장)
+                        </div>
+                    ) : (
+                        <div className="bg-slate-800 text-white text-xs font-bold text-center py-1.5 flex items-center justify-center gap-2">
+                            <i data-lucide="wifi" className="w-3 h-3 text-green-400"></i>
+                            온라인 상태
+                        </div>
+                    )}
+
+                    <header className="bg-indigo-700 text-white p-5 flex justify-between items-center shrink-0 z-20 shadow-md">
+                        <div className="flex items-center gap-2">
+                            <i data-lucide="book" className="w-6 h-6"></i>
+                            <h1 className="text-xl font-black tracking-tight">도서 POS</h1>
+                        </div>
+                        <button onClick={() => setView(view === 'pos' ? 'history' : 'pos')} className="bg-white/20 px-4 py-1.5 rounded-full text-xs font-bold uppercase">
+                            {view === 'pos' ? '판매기록 보기' : '계산대로 이동'}
+                        </button>
+                    </header>
+
+                    {view === 'pos' ? (
+                        <>
+                            <main className="flex-1 overflow-y-auto p-4 space-y-4 pb-48 no-scrollbar">
+                                <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200">
+                                    <button onClick={startScanner} className="w-full bg-indigo-600 active:bg-indigo-800 text-white py-8 rounded-2xl flex flex-col items-center gap-2 shadow-lg shadow-indigo-100 active:scale-95 transition-all">
+                                        <i data-lucide="scan" className="w-10 h-10"></i>
+                                        <span className="text-2xl font-black">스캔 시작</span>
+                                    </button>
+
+                                    <div className="flex gap-2 pt-4">
+                                        <input type="number" placeholder="바코드 숫자 직접 입력" value={manualInput} onChange={e=>setManualInput(e.target.value)} className="flex-1 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 text-lg font-bold outline-none focus:border-indigo-500" />
+                                        <button onClick={()=>addToCart(manualInput)} className="bg-slate-800 text-white px-6 rounded-xl font-black">추가</button>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-3">
+                                    <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-widest px-2">장바구니 리스트</h2>
+                                    {cart.length === 0 ? (
+                                        <div className="py-16 text-center text-slate-300">
+                                            <i data-lucide="shopping-bag" className="w-10 h-10 mx-auto mb-2 opacity-20"></i>
+                                            <p className="font-bold">목록이 비어있습니다</p>
+                                        </div>
+                                    ) : (
+                                        cart.map(item => (
+                                            <div key={item.barcode} className="bg-white p-5 rounded-2xl flex items-center justify-between shadow-sm border border-slate-100">
+                                                <div className="flex-1 mr-4">
+                                                    <p className="text-[11px] text-slate-400 font-bold mb-0.5">{item.series}</p>
+                                                    <p className="font-bold text-slate-800 text-lg leading-tight mb-1">{item.title}</p>
+                                                    <p className="text-indigo-600 font-black text-xl">{item.price.toLocaleString()}원</p>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex items-center bg-slate-100 rounded-xl p-1">
+                                                        <button onClick={()=>updateQty(item.barcode,-1)} className="w-10 h-10 font-black text-2xl bg-white rounded-lg shadow-sm">-</button>
+                                                        <span className="w-8 text-center font-black text-xl">{item.qty}</span>
+                                                        <button onClick={()=>updateQty(item.barcode,1)} className="w-10 h-10 font-black text-2xl bg-white rounded-lg shadow-sm">+</button>
+                                                    </div>
+                                                    <button onClick={()=>removeItem(item.barcode)} className="text-red-400 p-3"><i data-lucide="x-circle" className="w-6 h-6"></i></button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </main>
+
+                            <div className="absolute bottom-0 left-0 right-0 bg-white p-6 border-t-2 border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] rounded-t-[2rem]">
+                                <div className="flex justify-between items-end mb-4 px-1">
+                                    <span className="text-slate-400 font-bold uppercase text-xs">총 결제 금액</span>
+                                    <span className="text-4xl font-black text-indigo-700">{totalPrice.toLocaleString()}<span className="text-xl ml-1">원</span></span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button onClick={()=>handleCheckout('현금')} disabled={cart.length===0} className="bg-emerald-500 active:bg-emerald-600 disabled:bg-slate-200 text-white py-5 rounded-2xl font-black text-xl shadow-lg shadow-emerald-100 active:scale-95 transition-all">현금 결제</button>
+                                    <button onClick={()=>handleCheckout('계좌이체')} disabled={cart.length===0} className="bg-blue-600 active:bg-blue-700 disabled:bg-slate-200 text-white py-5 rounded-2xl font-black text-xl shadow-lg shadow-blue-100 active:scale-95 transition-all">계좌 이체</button>
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <main className="flex-1 overflow-y-auto p-5 space-y-6 bg-slate-50">
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-2xl font-black text-slate-800">로컬 판매 기록</h2>
+                                <button onClick={exportExcel} className="flex items-center gap-1 text-indigo-600 font-black border-2 border-indigo-100 px-4 py-2 rounded-xl bg-white shadow-sm">
+                                    <i data-lucide="download" className="w-4 h-4"></i>엑셀 저장
+                                </button>
+                            </div>
+
+                            <div className="bg-indigo-700 p-6 rounded-3xl text-white shadow-xl shadow-indigo-200">
+                                <p className="text-indigo-200 text-xs font-bold uppercase tracking-widest mb-1">기기 누적 매출액</p>
+                                <p className="text-4xl font-black mb-4">{salesHistory.reduce((s,r)=>s+r.total,0).toLocaleString()}원</p>
+                                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/20">
+                                    <div><p className="text-indigo-300 text-[10px] font-bold">판매 건수</p><p className="text-xl font-bold">{salesHistory.length}건</p></div>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3 pb-10">
+                                {salesHistory.map(record => (
+                                    <div key={record.id} className="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm">
+                                        <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-2">
+                                            <span>{record.timestamp}</span>
+                                            <span className={`px-2 py-0.5 rounded-md ${record.method === '현금' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>{record.method}</span>
+                                        </div>
+                                        <p className="font-bold text-slate-800 mb-1 leading-snug">{record.items}</p>
+                                        <p className="text-right font-black text-xl text-indigo-900">{record.total.toLocaleString()}원</p>
+                                    </div>
+                                ))}
+                            </div>
+                            <button onClick={()=>{if(confirm("이 기기의 모든 데이터를 지울까요?")) setSalesHistory([]);}} className="w-full py-6 text-slate-300 text-xs font-bold">기기 데이터 완전 삭제</button>
+                        </main>
+                    )}
+
+                    {isScanning && (
+                        <div className="fixed inset-0 bg-black z-[100] flex flex-col">
+                            <div className="p-5 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent">
+                                <span className="text-white font-bold bg-green-500/80 px-3 py-1 rounded-lg text-xs">바코드를 비춰주세요</span>
+                                <button onClick={stopScanner} className="bg-red-500 text-white px-5 py-2 rounded-xl font-bold">닫기</button>
+                            </div>
+                            <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden">
+                                <div id="reader" className="w-full h-full scale-110"></div>
+                                <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
+                                    <div className="w-72 h-40 border-2 border-white/50 rounded-3xl relative overflow-hidden">
+                                        <div className="scan-line"></div>
+                                    </div>
+                                    <p className="mt-8 bg-black/60 text-white px-4 py-2 rounded-full text-xs font-bold">바코드를 사각형 안에 맞춰주세요</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+        window.onload = () => { setInterval(() => { if (window.lucide) lucide.createIcons(); }, 800); };
+    </script>
+</body>
+</html>
